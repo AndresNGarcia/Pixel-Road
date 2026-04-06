@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QLabel
 )
 from PySide6.QtGui import QPixmap, QFont, QFontDatabase
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 
@@ -15,6 +15,10 @@ ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 
 class MenuPrincipal(QMainWindow):
+    # Señales que main.py necesita conectar
+    ir_a_jugar = Signal()
+    ir_a_score = Signal()
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Pixel Road")
@@ -67,7 +71,6 @@ class MenuPrincipal(QMainWindow):
             self.labelFondo.setStyleSheet("background-color: #0a0010;")
             print("[INFO] Fondo provisional")
 
-        # Logo arriba centrado
         labelLogo = QLabel(self)
         pixmapLogo = QPixmap(rutaLogo)
         if not pixmapLogo.isNull():
@@ -78,7 +81,6 @@ class MenuPrincipal(QMainWindow):
         labelLogo.setGeometry(0, 30, ANCHO, 310)
         labelLogo.setAttribute(Qt.WA_TranslucentBackground)
 
-        # Botones
         rutaBotonQt = rutaBoton.replace("\\", "/")
         estiloBoton = f"""
             QPushButton {{
@@ -118,10 +120,10 @@ class MenuPrincipal(QMainWindow):
         self.sonidoBoton.play()
 
     def accionJugar(self):
-        print("Iniciando juego...")
+        self.ir_a_jugar.emit()  # <-- emite la señal en lugar de solo print
 
     def accionScore(self):
-        print("Mostrando puntajes...")
+        self.ir_a_score.emit()  # <-- emite la señal en lugar de solo print
 
     def accionSalir(self):
         QApplication.quit()
