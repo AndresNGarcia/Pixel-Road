@@ -12,6 +12,7 @@ from PySide6.QtGui import (
     QPainter, QLinearGradient,
 )
 from PySide6.QtCore import QTimer, Qt
+from ScoreManager import ScoreManager
 
 #  Constantes 
 W, H          = 1280, 720
@@ -504,6 +505,18 @@ class GameScreen(QWidget):
 
     def _trigger_game_over(self):
         self.game_over = True
+        score_manager = ScoreManager()
+
+        score_manager.guardar_score(
+        self._nombre1,
+        self.p1.score
+    )
+
+        score_manager.guardar_score(
+        self._nombre2,
+        self.p2.score
+    )
+
         self.go_overlay.show(
             self.p1.score, self.p2.score,
             self._nombre1, self._nombre2,
