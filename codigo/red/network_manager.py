@@ -1,7 +1,6 @@
-from servidor import Servidor
-from cliente import Cliente
-from network_thread import NetworkThread
-
+from red.servidor import Servidor
+from red.cliente import Cliente
+from red.network_thread import NetworkThread
 
 class NetworkManager:
 
