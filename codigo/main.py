@@ -17,9 +17,8 @@ sys.path.insert(
 # Importaciones
 from menuPrincipal import MenuPrincipal
 from NombresScreen import NombresScreen
-from GameScreen    import GameScreen
-
-from ScoreManager import ScoreManager
+from GameScreen import GameScreen
+from ScoreScreen import ScoreScreen
 
 
 # Índices del stack
@@ -35,14 +34,20 @@ def abrir_scores(stack, score_screen):
     y recarga el JSON
     """
     score_screen.cargar_scores()
+
     stack.setCurrentIndex(
         IDX_SCORE
     )
 
 
 def _iniciar(game, n1, n2, stack):
-    game.set_jugadores(n1, n2)
+    game.set_jugadores(
+        n1,
+        n2
+    )
+
     game.start_game()
+
     stack.setCurrentIndex(
         IDX_JUEGO
     )
@@ -58,17 +63,21 @@ def main():
         "Pixel Road"
     )
 
-    # Pantallas
+    # ───────── PANTALLAS ─────────
+
     menu = MenuPrincipal()
+
     nombres = NombresScreen()
+
     game = GameScreen(
         stack,
         menu_index=IDX_MENU
     )
 
-    score_screen = ScoreManager()
+    score_screen = ScoreScreen()
 
-    # Agregar widgets
+    # ───────── STACK ─────────
+
     stack.addWidget(menu)           # 0
     stack.addWidget(nombres)        # 1
     stack.addWidget(game)           # 2
@@ -124,7 +133,7 @@ def main():
         )
     )
 
-    # Mostrar menú al inicio
+    # Pantalla inicial
     stack.setCurrentIndex(
         IDX_MENU
     )
