@@ -1,152 +1,85 @@
-import os
-import json
-
-from PySide6.QtCore import Signal, Qt
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QLabel,
-    QPushButton,
-    QTextEdit
-)
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QThread, Signal
+from red.servidor import Servidor
+from red.cliente import Cliente
+from red.network_thread import NetworkThread
 
 
-class ScoreManager(QWidget):
+class ServidorThread(QThread):
+    """
+    Corre servidor.iniciar() (bloqueante) en un hilo separado
+    para no congelar la UI mientras espera al cliente.
+    """
+    jugador_conectado = Signal()
+    error_conexion    = Signal(str)
 
-    volver_menu = Signal()
+    def __init__(self, servidor: Servidor):
+        super().__init__()
+        self.servidor = servidor
+
+    def run(self):
+        try:
+            self.servidor.iniciar()          # accept() bloqueante — ok en hilo
+            self.jugador_conectado.emit()
+        except Exception as e:
+            self.error_conexion.emit(str(e))
+
+
+class NetworkManager:
 
     def __init__(self):
-        super().__init__()
+        self.conexion        = None
+        self.thread          = None          # NetworkThread (lectura continua)
+        self.servidor_thread = None          # ServidorThread (solo para host)
+        self.es_host         = False
 
-        self.base_path = os.path.dirname(
-            os.path.abspath(__file__)
+    # ── HOST: inicia el servidor en un hilo y avisa cuando se conecta alguien ─
+    def crear_partida(self, on_conectado, on_error):
+        """
+        Llama on_conectado() cuando el cliente se une,
+        o on_error(msg) si falla.
+        """
+        self.es_host = True
+        servidor = Servidor()
+
+        self.servidor_thread = ServidorThread(servidor)
+        self.servidor_thread.jugador_conectado.connect(
+            lambda: self._host_listo(servidor, on_conectado)
         )
+        self.servidor_thread.error_conexion.connect(on_error)
+        self.servidor_thread.start()
 
-        self.score_path = os.path.join(
-            self.base_path,
-            "data",
-            "scores.json"
-        )
+    def _host_listo(self, servidor, on_conectado):
+        self.conexion = servidor
+        self._arrancar_thread_lectura()
+        on_conectado()
 
-        self.setStyleSheet("""
-            QWidget{
-                background-color: #111827;
-                color: white;
-            }
+    # ── CLIENTE: conecta directamente (rápido, no necesita hilo extra) ────────
+    def unirse_partida(self, ip):
+        self.es_host = False
+        cliente = Cliente()
+        cliente.conectar(ip)        # puede lanzar excepción — se maneja en main
+        self.conexion = cliente
+        self._arrancar_thread_lectura()
 
-            QPushButton{
-                background-color: #2563EB;
-                color: white;
-                border-radius: 10px;
-                padding: 12px;
-                font-size: 16px;
-            }
+    # ── Thread de lectura continua ────────────────────────────────────────────
+    def _arrancar_thread_lectura(self):
+        self.thread = NetworkThread(self.conexion)
+        self.thread.start()
 
-            QPushButton:hover{
-                background-color: #1D4ED8;
-            }
+    # ── API pública ───────────────────────────────────────────────────────────
+    def enviar(self, mensaje):
+        if self.conexion:
+            self.conexion.enviar(mensaje)
 
-            QTextEdit{
-                background-color: #1F2937;
-                border: 2px solid #374151;
-                border-radius: 10px;
-                font-size: 18px;
-                padding: 10px;
-            }
-        """)
+    def conectar_mensaje(self, callback):
+        if self.thread:
+            self.thread.mensaje_recibido.connect(callback)
 
-        layout = QVBoxLayout(self)
-
-        titulo = QLabel("🏆 SCOREBOARD")
-        titulo.setFont(
-            QFont(
-                "Arial",
-                24,
-                QFont.Bold
-            )
-        )
-
-        titulo.setStyleSheet(
-            "color: gold;"
-        )
-
-        titulo.setAlignment(
-            Qt.AlignCenter
-        )
-
-        self.score_box = QTextEdit()
-        self.score_box.setReadOnly(True)
-
-        btn_volver = QPushButton(
-            "⬅ Volver al menú"
-        )
-
-        btn_volver.clicked.connect(
-            self.volver_menu.emit
-        )
-
-        layout.addWidget(titulo)
-        layout.addWidget(self.score_box)
-        layout.addWidget(btn_volver)
-
-    def cargar_scores(self):
-
-        self.score_box.clear()
-
-        if not os.path.exists(
-            self.score_path
-        ):
-            self.score_box.setText(
-                "No hay puntajes aún."
-            )
-            return
-
-        try:
-            with open(
-                self.score_path,
-                "r",
-                encoding="utf-8"
-            ) as f:
-
-                scores = json.load(f)
-
-            if not scores:
-                self.score_box.setText(
-                    "No hay puntajes aún."
-                )
-                return
-
-            # Ordenar por puntos
-            scores = sorted(
-                scores,
-                key=lambda x: x["puntos"],
-                reverse=True
-            )
-
-            texto = "🏆 TOP 10 JUGADORES\n\n"
-
-            for i, jugador in enumerate(
-                scores[:10],
-                start=1
-            ):
-
-                nombre = jugador["nombre"]
-                puntos = jugador["puntos"]
-
-                texto += (
-                    f"{i}. "
-                    f"{nombre}"
-                    f" — "
-                    f"{puntos} pts\n"
-                )
-
-            self.score_box.setText(
-                texto
-            )
-
-        except Exception as e:
-
-            self.score_box.setText(
-                f"Error cargando puntajes:\n{e}"
-            )
+    def cerrar(self):
+        if self.thread:
+            self.thread.detener()
+        if self.servidor_thread and self.servidor_thread.isRunning():
+            self.servidor_thread.quit()
+            self.servidor_thread.wait()
+        if self.conexion:
+            self.conexion.cerrar()

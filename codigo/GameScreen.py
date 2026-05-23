@@ -208,8 +208,12 @@ class GameOverOverlay:
             self.scene.addItem(item)
             self._items.append(item)
 
-        self._btn("▶  Reiniciar  (R)",      W // 2 - 360, 460, "#003322", "#00e5aa", on_restart, z + 1)
-        self._btn("⌂  Menú principal  (M)", W // 2 + 20,  460, "#001133", "#4488ff", on_menu,    z + 1)
+        if on_restart:
+            self._btn("▶  Reiniciar  (R)",      W // 2 - 360, 460, "#003322", "#00e5aa", on_restart, z + 1)
+            self._btn("⌂  Menú principal  (M)", W // 2 + 20,  460, "#001133", "#4488ff", on_menu,    z + 1)
+        else:
+            # Cliente: solo puede volver al menú
+            self._btn("⌂  Menú principal  (M)", W // 2 - 155, 460, "#001133", "#4488ff", on_menu, z + 1)
 
     def _btn(self, label, x, y, bg, border, cb, z):
         rect = QGraphicsRectItem(x, y, 310, 54)
@@ -308,7 +312,11 @@ class GameScreen(QWidget):
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.view.setRenderHint(QPainter.Antialiasing)
         self.view.setStyleSheet("border: none; background: #000;")
+        # El view NO debe robar el foco — GameScreen maneja el teclado
+        self.view.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self.view)
+
+        self.setFocusPolicy(Qt.StrongFocus)
 
         self.timer = QTimer(self)
         self.timer.setInterval(16)  # ~60 fps
@@ -336,6 +344,38 @@ class GameScreen(QWidget):
         self._nombre1 = nombre1
         self._nombre2 = nombre2
 
+    def mostrar_espera(self, mensaje: str = "Esperando jugador..."):
+        """Muestra pantalla de espera mientras el host aguarda conexión."""
+        self.timer.stop()
+        self.scene.clear()
+        self.road_objects.clear()
+        self.game_over = False
+        self.paused    = False
+
+        # Fondo negro
+        from PySide6.QtWidgets import QGraphicsRectItem
+        from PySide6.QtGui import QBrush, QColor
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QPen
+        bg = QGraphicsRectItem(0, 0, W, H)
+        bg.setBrush(QBrush(QColor(0, 0, 10)))
+        bg.setPen(QPen(Qt.NoPen))
+        bg.setZValue(0)
+        self.scene.addItem(bg)
+
+        txt = self.scene.addText(mensaje, _fuente_pixel(18))
+        txt.setDefaultTextColor(QColor("#00e5ff"))
+        txt.setPos(
+            W / 2 - txt.boundingRect().width() / 2,
+            H / 2 - txt.boundingRect().height() / 2,
+        )
+        txt.setZValue(10)
+
+        sub = self.scene.addText("Puerto 5000 abierto", _fuente_pixel(9))
+        sub.setDefaultTextColor(QColor("#446655"))
+        sub.setPos(W / 2 - sub.boundingRect().width() / 2, H / 2 + 60)
+        sub.setZValue(10)
+
     def start_game(self):
         self.timer.stop()
         self.scene.clear()
@@ -345,7 +385,9 @@ class GameScreen(QWidget):
         self.speed        = float(INITIAL_SPEED)
         self.spawn_timer  = 0
         self.score_ticker = 0
-        self.last_lane    = -1
+        self.last_lane        = -1
+        self._mi_jugador_murio = False
+        self._rival_murio      = False
         self._build_scene()
         self.hud        = HUD(self.scene, self._nombre1, self._nombre2)
         self.go_overlay = GameOverOverlay(self.scene)
@@ -404,30 +446,38 @@ class GameScreen(QWidget):
         if self.paused:
             return
 
-        # Jugador 1: A / D
-        if key == Qt.Key_A and self.p1.alive:
-            nuevo_lane = max(0, self.p1.lane - 1)
-            self.p1.move_to(nuevo_lane)
-            if self.network:
-                self.network.enviar(f"MOVE|P1|{nuevo_lane}")
+        # ── Sin red: ambos jugadores en local ────────────────────────────────
+        if not self.network:
+            if key == Qt.Key_A and self.p1.alive:
+                self.p1.move_to(max(0, self.p1.lane - 1))
+            elif key == Qt.Key_D and self.p1.alive:
+                self.p1.move_to(min(len(LANES) - 1, self.p1.lane + 1))
+            elif key == Qt.Key_Left and self.p2.alive:
+                self.p2.move_to(max(0, self.p2.lane - 1))
+            elif key == Qt.Key_Right and self.p2.alive:
+                self.p2.move_to(min(len(LANES) - 1, self.p2.lane + 1))
+            return
 
-        elif key == Qt.Key_D and self.p1.alive:
-            nuevo_lane = min(len(LANES) - 1, self.p1.lane + 1)
-            self.p1.move_to(nuevo_lane)
-            if self.network:
+        # ── Con red: cada instancia controla solo su jugador ─────────────────
+        if self.es_host:
+            # Host controla P1 con A / D
+            if key == Qt.Key_A and self.p1.alive:
+                nuevo_lane = max(0, self.p1.lane - 1)
+                self.p1.move_to(nuevo_lane)
                 self.network.enviar(f"MOVE|P1|{nuevo_lane}")
-
-        # Jugador 2: ← / →
-        elif key == Qt.Key_Left and self.p2.alive:
-            nuevo_lane = max(0, self.p2.lane - 1)
-            self.p2.move_to(nuevo_lane)
-            if self.network:
+            elif key == Qt.Key_D and self.p1.alive:
+                nuevo_lane = min(len(LANES) - 1, self.p1.lane + 1)
+                self.p1.move_to(nuevo_lane)
+                self.network.enviar(f"MOVE|P1|{nuevo_lane}")
+        else:
+            # Cliente controla P2 con ← / →
+            if key == Qt.Key_Left and self.p2.alive:
+                nuevo_lane = max(0, self.p2.lane - 1)
+                self.p2.move_to(nuevo_lane)
                 self.network.enviar(f"MOVE|P2|{nuevo_lane}")
-
-        elif key == Qt.Key_Right and self.p2.alive:
-            nuevo_lane = min(len(LANES) - 1, self.p2.lane + 1)
-            self.p2.move_to(nuevo_lane)
-            if self.network:
+            elif key == Qt.Key_Right and self.p2.alive:
+                nuevo_lane = min(len(LANES) - 1, self.p2.lane + 1)
+                self.p2.move_to(nuevo_lane)
                 self.network.enviar(f"MOVE|P2|{nuevo_lane}")
 
     # ── Game loop ─────────────────────────────────────────────────────────────
@@ -460,6 +510,9 @@ class GameScreen(QWidget):
             self.road2.setY(self.road1.y() - H)
 
     def _handle_spawn(self):
+        # Solo el host genera obstáculos; el cliente los recibe por red
+        if self.network and not self.es_host:
+            return
         self.spawn_timer += 1
         interval = max(SPAWN_MIN, SPAWN_MAX - int(self.speed - INITIAL_SPEED) * 3)
         if self.spawn_timer >= interval:
@@ -470,54 +523,90 @@ class GameScreen(QWidget):
         avail    = [i for i in range(len(LANES)) if i != self.last_lane]
         lane_idx = random.choice(avail)
         self.last_lane = lane_idx
-        x = LANES[lane_idx]
 
         if random.random() < FUEL_PROB:
-            px = _px("gasolina.png", 40, 55, "#FF8800")
+            kind   = "fuel"
+            sprite = "gasolina.png"
+            mult   = 0.9
+        else:
+            kind   = "enemy"
+            sprite = random.choice(["enemigo1.png", "enemigo2.png", "enemigo3.png"])
+            mult   = random.choice([0.7, 0.85, 1.0, 1.15, 1.3])
+
+        self._crear_objeto(lane_idx, kind, sprite, mult)
+
+        # Enviar al cliente para que dibuje el mismo objeto
+        if self.network:
+            self.network.enviar(f"SPAWN|{lane_idx}|{kind}|{sprite}|{mult}")
+
+    def _crear_objeto(self, lane_idx: int, kind: str, sprite: str, mult: float):
+        x = LANES[lane_idx]
+        if kind == "fuel":
+            px = _px(sprite, 40, 55, "#FF8800")
             if px.width() > 80:
                 px = px.scaled(44, 58, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            item = QGraphicsPixmapItem(px)
-            item.setZValue(5)
-            item.setPos(x - px.width() / 2, -px.height())
-            self.scene.addItem(item)
-            self.road_objects.append(RoadObject(item, "fuel", 0.9))
         else:
-            archivos = ["enemigo1.png", "enemigo2.png", "enemigo3.png"]
-            px = _px(random.choice(archivos), 60, 90, "#445566")
+            px = _px(sprite, 60, 90, "#445566")
             if px.width() > 120:
                 px = px.scaled(65, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            item = QGraphicsPixmapItem(px)
-            item.setZValue(5)
-            item.setPos(x - px.width() / 2, -px.height())
-            self.scene.addItem(item)
-            mult = random.choice([0.7, 0.85, 1.0, 1.15, 1.3])
-            self.road_objects.append(RoadObject(item, "enemy", mult))
+        item = QGraphicsPixmapItem(px)
+        item.setZValue(5)
+        item.setPos(x - px.width() / 2, -px.height())
+        self.scene.addItem(item)
+        self.road_objects.append(RoadObject(item, kind, mult))
 
     def _move_objects(self):
         for o in self.road_objects:
             o.move(self.speed)
 
     def _check_collisions(self):
+        # Solo el host calcula colisiones — es la fuente de verdad
+        if self.network and not self.es_host:
+            return
+
+        # Máximo 1 impacto por jugador por frame (evita doble daño con obstáculos juntos)
+        p1_golpeado = False
+        p2_golpeado = False
+
         for o in self.road_objects[:]:
             if o.kind == "enemy":
-                if self.p1.alive and self.p1.invincible == 0 and o.collides(self.p1.car_item):
-                    self.p1.take_damage()
+                if (not p1_golpeado and self.p1.alive
+                        and self.p1.invincible == 0
+                        and o.collides(self.p1.car_item)):
+                    murio = self.p1.take_damage()
                     o.remove(self.scene)
                     self.road_objects.remove(o)
-                elif self.p2.alive and self.p2.invincible == 0 and o.collides(self.p2.car_item):
-                    self.p2.take_damage()
+                    p1_golpeado = True
+                    if self.network:
+                        self.network.enviar("HIT|P1")
+                        if murio:
+                            self.network.enviar("DEAD|P1")
+
+                elif (not p2_golpeado and self.p2.alive
+                        and self.p2.invincible == 0
+                        and o.collides(self.p2.car_item)):
+                    murio = self.p2.take_damage()
                     o.remove(self.scene)
                     self.road_objects.remove(o)
+                    p2_golpeado = True
+                    if self.network:
+                        self.network.enviar("HIT|P2")
+                        if murio:
+                            self.network.enviar("DEAD|P2")
 
             elif o.kind == "fuel":
                 if self.p1.alive and o.collides(self.p1.car_item):
                     self.p1.score += 300
                     o.remove(self.scene)
                     self.road_objects.remove(o)
+                    if self.network:
+                        self.network.enviar("FUEL|P1")
                 elif self.p2.alive and o.collides(self.p2.car_item):
                     self.p2.score += 300
                     o.remove(self.scene)
                     self.road_objects.remove(o)
+                    if self.network:
+                        self.network.enviar("FUEL|P2")
 
     def _cleanup(self):
         gone = [o for o in self.road_objects if o.y > H + 80]
@@ -537,16 +626,75 @@ class GameScreen(QWidget):
         self.speed = min(INITIAL_SPEED + (top // 500) * SPEED_INC, MAX_SPEED)
 
     def _check_game_over(self):
-        # Game over cuando cualquiera de los dos muere
-        if not self.p1.alive or not self.p2.alive:
-            if not self.game_over:
-                self._trigger_game_over()
+        if self.game_over:
+            return
 
-    def _trigger_game_over(self):
+        p1_murio = not self.p1.alive
+        p2_murio = not self.p2.alive
+
+        if not p1_murio and not p2_murio:
+            return
+
+        # ── Sin red: game over inmediato al morir cualquiera ─────────────────
+        if not self.network:
+            self._trigger_game_over_final()
+            return
+
+        # ── Con red ───────────────────────────────────────────────────────────
+        if self.es_host:
+            # El host es quien decide cuándo termina la partida
+            if p1_murio and not self._mi_jugador_murio:
+                self._mi_jugador_murio = True
+                self._mostrar_espera_rival()
+                self.network.enviar("PLAYER_DEAD|P1")
+
+            if p2_murio and not self._rival_murio:
+                self._rival_murio = True
+
+            if self._mi_jugador_murio and self._rival_murio:
+                # Ambos muertos — host decide ganador y notifica
+                ganador = "P2" if self.p1.score < self.p2.score else "P1"
+                self.network.enviar(f"GAME_OVER|{ganador}|{self.p1.score}|{self.p2.score}")
+                self._trigger_game_over_final()
+            elif p2_murio and not self._mi_jugador_murio:
+                # Solo el rival (P2) murió — host sigue, informa al cliente
+                self._rival_murio = True
+        else:
+            # Cliente
+            if p2_murio and not self._mi_jugador_murio:
+                self._mi_jugador_murio = True
+                self._mostrar_espera_rival()
+                self.network.enviar("PLAYER_DEAD|P2")
+
+    def _mostrar_espera_rival(self):
+        """Muestra overlay de espera SIN detener el timer — el juego sigue corriendo."""
+        from PySide6.QtWidgets import QGraphicsRectItem
+        from PySide6.QtGui import QBrush, QColor, QPen
+        from PySide6.QtCore import Qt as _Qt
+
+        # Ocultar el avatar del jugador muerto
+        if not self.p1.alive:
+            self.p1.car_item.setVisible(False)
+        if not self.p2.alive:
+            self.p2.car_item.setVisible(False)
+
+        # Overlay semitransparente (no bloquea el tick)
+        bg = QGraphicsRectItem(0, 0, W, H)
+        bg.setBrush(QBrush(QColor(0, 0, 0, 140)))
+        bg.setPen(QPen(_Qt.NoPen))
+        bg.setZValue(80)
+        self.scene.addItem(bg)
+        txt = self.scene.addText("Esperando al rival...", _fuente_pixel(16))
+        txt.setDefaultTextColor(QColor("#FFD700"))
+        txt.setPos(W/2 - txt.boundingRect().width()/2,
+                   H/2 - txt.boundingRect().height()/2)
+        txt.setZValue(81)
+
+    def _trigger_game_over_final(self):
+        """Muestra el overlay de game over con resultado final."""
         self.game_over = True
         self.timer.stop()
 
-        # Guardar scores si ScoreManager está disponible
         if _SCORE_MANAGER_OK:
             try:
                 sm = ScoreManager()
@@ -555,10 +703,12 @@ class GameScreen(QWidget):
             except Exception as e:
                 print(f"[ScoreManager] Error al guardar: {e}")
 
+        # Solo el host (o local) muestra botón de reiniciar
+        puede_reiniciar = not self.network or self.es_host
         self.go_overlay.show(
             self.p1.score, self.p2.score,
             self._nombre1, self._nombre2,
-            on_restart=self.start_game,
+            on_restart=self.start_game if puede_reiniciar else None,
             on_menu=self._go_menu,
         )
 
@@ -588,12 +738,15 @@ class GameScreen(QWidget):
     # ── Red: recibir movimiento del otro jugador ──────────────────────────────
     def recibir_mensaje_red(self, mensaje: str):
         """
-        Procesa mensajes de red con formato: "MOVE|P1|3" o "MOVE|P2|5"
-        Se llama desde NetworkManager cuando llega un mensaje del otro jugador.
+        Protocolo de mensajes:
+          MOVE|P1|3          -> mover jugador a carril
+          SPAWN|lane|kind|sprite|mult -> crear obstáculo (cliente recibe del host)
+          DEAD|P1            -> el jugador indicado murió
         """
         try:
-            datos   = mensaje.strip().split("|")
-            tipo    = datos[0]
+            datos = mensaje.strip().split("|")
+            tipo  = datos[0]
+
             if tipo == "MOVE" and len(datos) == 3:
                 jugador = datos[1]
                 lane    = int(datos[2])
@@ -601,6 +754,63 @@ class GameScreen(QWidget):
                     self.p1.move_to(lane)
                 elif jugador == "P2" and self.p2:
                     self.p2.move_to(lane)
+
+            elif tipo == "SPAWN" and len(datos) == 5:
+                # Solo el cliente procesa SPAWN (el host ya lo dibujó al generarlo)
+                if not self.es_host:
+                    lane_idx = int(datos[1])
+                    kind     = datos[2]
+                    sprite   = datos[3]
+                    mult     = float(datos[4])
+                    self._crear_objeto(lane_idx, kind, sprite, mult)
+
+            elif tipo == "HIT" and len(datos) == 2:
+                # El cliente aplica el daño que el host ya calculó
+                jugador = datos[1]
+                if jugador == "P1" and self.p1:
+                    self.p1.take_damage()
+                elif jugador == "P2" and self.p2:
+                    self.p2.take_damage()
+
+            elif tipo == "DEAD" and len(datos) == 2:
+                jugador = datos[1]
+                if jugador == "P1" and self.p1:
+                    self.p1.alive = False
+                    self.p1.lives = 0
+                elif jugador == "P2" and self.p2:
+                    self.p2.alive = False
+                    self.p2.lives = 0
+
+            elif tipo == "FUEL" and len(datos) == 2:
+                jugador = datos[1]
+                if jugador == "P1" and self.p1:
+                    self.p1.score += 300
+                elif jugador == "P2" and self.p2:
+                    self.p2.score += 300
+
+            elif tipo == "PLAYER_DEAD" and len(datos) == 2:
+                jugador = datos[1]
+                if jugador == "P1" and self.p1:
+                    self.p1.alive = False
+                    self.p1.lives = 0
+                    self.p1.car_item.setVisible(False)
+                elif jugador == "P2" and self.p2:
+                    self.p2.alive = False
+                    self.p2.lives = 0
+                    self.p2.car_item.setVisible(False)
+                # El vivo sigue jugando con obstáculos normales (timer no se detiene)
+
+            elif tipo == "GAME_OVER" and len(datos) == 4:
+                # Solo el cliente recibe este mensaje (el host ya llama _trigger directamente)
+                if not self.es_host:
+                    p1_score = int(datos[2])
+                    p2_score = int(datos[3])
+                    self.p1.score = p1_score
+                    self.p2.score = p2_score
+                    self.p1.alive = False
+                    self.p2.alive = False
+                    self._trigger_game_over_final()
+
         except Exception as e:
             print(f"[RED] Error procesando mensaje: {e}")
 
