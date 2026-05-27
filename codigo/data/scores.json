@@ -1,10 +1,42 @@
 [
     {
-        "nombre": "cer",
-        "puntos": 770
+        "nombre": "Jugador 1",
+        "puntos": 1200
     },
     {
-        "nombre": "xs",
-        "puntos": 93
+        "nombre": "Jugador 2",
+        "puntos": 746
+    },
+    {
+        "nombre": "Jugador2",
+        "puntos": 746
+    },
+    {
+        "nombre": "Jugador 2",
+        "puntos": 740
+    },
+    {
+        "nombre": "Jugador2",
+        "puntos": 740
+    },
+    {
+        "nombre": "Jugador 2",
+        "puntos": 442
+    },
+    {
+        "nombre": "Jugador1",
+        "puntos": 442
+    },
+    {
+        "nombre": "Jugador 1",
+        "puntos": 442
+    },
+    {
+        "nombre": "Jugador1",
+        "puntos": 197
+    },
+    {
+        "nombre": "Jugador 1",
+        "puntos": 197
     }
 ]

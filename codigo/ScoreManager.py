@@ -1,85 +1,39 @@
-from PySide6.QtCore import QThread, Signal
-from red.servidor import Servidor
-from red.cliente import Cliente
-from red.network_thread import NetworkThread
+import os
+import json
 
 
-class ServidorThread(QThread):
-    """
-    Corre servidor.iniciar() (bloqueante) en un hilo separado
-    para no congelar la UI mientras espera al cliente.
-    """
-    jugador_conectado = Signal()
-    error_conexion    = Signal(str)
-
-    def __init__(self, servidor: Servidor):
-        super().__init__()
-        self.servidor = servidor
-
-    def run(self):
-        try:
-            self.servidor.iniciar()          # accept() bloqueante — ok en hilo
-            self.jugador_conectado.emit()
-        except Exception as e:
-            self.error_conexion.emit(str(e))
-
-
-class NetworkManager:
+class ScoreManager:
+    # Clase de solo datos, sin UI. Lee y escribe scores.json
 
     def __init__(self):
-        self.conexion        = None
-        self.thread          = None          # NetworkThread (lectura continua)
-        self.servidor_thread = None          # ServidorThread (solo para host)
-        self.es_host         = False
+        base = os.path.dirname(os.path.abspath(__file__))
+        self.ruta_scores = os.path.join(base, "data", "scores.json")
 
-    # ── HOST: inicia el servidor en un hilo y avisa cuando se conecta alguien ─
-    def crear_partida(self, on_conectado, on_error):
-        """
-        Llama on_conectado() cuando el cliente se une,
-        o on_error(msg) si falla.
-        """
-        self.es_host = True
-        servidor = Servidor()
+    def guardar_score(self, nombre, puntos):
+        scores = self._leer()
+        scores.append({"nombre": nombre, "puntos": puntos})
+        scores = sorted(scores, key=lambda x: x["puntos"], reverse=True)
+        # Si ya hay 10 entradas solo descartamos la menor si el nuevo puntaje la supera.
+        # Esto permite que puntuaciones bajas queden si hay menos de 10 registros.
+        if len(scores) > 10:
+            scores = scores[:10]
+        self._escribir(scores)
 
-        self.servidor_thread = ServidorThread(servidor)
-        self.servidor_thread.jugador_conectado.connect(
-            lambda: self._host_listo(servidor, on_conectado)
-        )
-        self.servidor_thread.error_conexion.connect(on_error)
-        self.servidor_thread.start()
+    def obtener_top(self, n=10):
+        scores = self._leer()
+        return sorted(scores, key=lambda x: x["puntos"], reverse=True)[:n]
 
-    def _host_listo(self, servidor, on_conectado):
-        self.conexion = servidor
-        self._arrancar_thread_lectura()
-        on_conectado()
+    def _leer(self):
+        if not os.path.exists(self.ruta_scores):
+            return []
+        try:
+            with open(self.ruta_scores, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
 
-    # ── CLIENTE: conecta directamente (rápido, no necesita hilo extra) ────────
-    def unirse_partida(self, ip):
-        self.es_host = False
-        cliente = Cliente()
-        cliente.conectar(ip)        # puede lanzar excepción — se maneja en main
-        self.conexion = cliente
-        self._arrancar_thread_lectura()
-
-    # ── Thread de lectura continua ────────────────────────────────────────────
-    def _arrancar_thread_lectura(self):
-        self.thread = NetworkThread(self.conexion)
-        self.thread.start()
-
-    # ── API pública ───────────────────────────────────────────────────────────
-    def enviar(self, mensaje):
-        if self.conexion:
-            self.conexion.enviar(mensaje)
-
-    def conectar_mensaje(self, callback):
-        if self.thread:
-            self.thread.mensaje_recibido.connect(callback)
-
-    def cerrar(self):
-        if self.thread:
-            self.thread.detener()
-        if self.servidor_thread and self.servidor_thread.isRunning():
-            self.servidor_thread.quit()
-            self.servidor_thread.wait()
-        if self.conexion:
-            self.conexion.cerrar()
+    def _escribir(self, scores):
+        # Crea la carpeta data/ si no existe
+        os.makedirs(os.path.dirname(self.ruta_scores), exist_ok=True)
+        with open(self.ruta_scores, "w", encoding="utf-8") as f:
+            json.dump(scores, f, ensure_ascii=False, indent=4)

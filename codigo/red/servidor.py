@@ -2,65 +2,35 @@ import socket
 
 
 class Servidor:
+    # Abre un socket TCP y espera que un cliente se conecte.
+    # Escucha en todas las interfaces (0.0.0.0) para aceptar conexiones LAN.
+
     def __init__(self, host="0.0.0.0", puerto=5000):
-        self.host = host
+        self.host   = host
         self.puerto = puerto
-
-        self.server_socket = socket.socket(
-            socket.AF_INET,
-            socket.SOCK_STREAM
-        )
-
-        self.server_socket.setsockopt(
-            socket.SOL_SOCKET,
-            socket.SO_REUSEADDR,
-            1
-        )
-
-        self.client_socket = None
-        self.client_address = None
+        self.socket_servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # SO_REUSEADDR evita el error "address already in use" al reiniciar rapido
+        self.socket_servidor.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.socket_cliente  = None
+        self.direccion_cliente = None
 
     def iniciar(self):
-        self.server_socket.bind(
-            (self.host, self.puerto)
-        )
-
-        self.server_socket.listen(1)
-
-        print(
-            f"[SERVIDOR] Escuchando en "
-            f"{self.host}:{self.puerto}"
-        )
-
-        print(
-            "[SERVIDOR] Esperando jugador..."
-        )
-
-        self.client_socket, self.client_address = (
-            self.server_socket.accept()
-        )
-
-        print(
-            f"[SERVIDOR] Jugador conectado:"
-            f" {self.client_address}"
-        )
+        # Bloquea hasta que un cliente se conecta (se llama desde ServidorThread)
+        self.socket_servidor.bind((self.host, self.puerto))
+        self.socket_servidor.listen(1)
+        print(f"[SERVIDOR] Escuchando en {self.host}:{self.puerto}")
+        self.socket_cliente, self.direccion_cliente = self.socket_servidor.accept()
+        print(f"[SERVIDOR] Jugador conectado: {self.direccion_cliente}")
 
     def enviar(self, mensaje):
-        if self.client_socket:
-            self.client_socket.send(
-                mensaje.encode()
-            )
+        if self.socket_cliente:
+            self.socket_cliente.send(mensaje.encode())
 
     def recibir(self):
-        if self.client_socket:
-            return (
-                self.client_socket
-                .recv(1024)
-                .decode()
-            )
+        if self.socket_cliente:
+            return self.socket_cliente.recv(1024).decode()
 
     def cerrar(self):
-        if self.client_socket:
-            self.client_socket.close()
-
-        self.server_socket.close()
+        if self.socket_cliente:
+            self.socket_cliente.close()
+        self.socket_servidor.close()
