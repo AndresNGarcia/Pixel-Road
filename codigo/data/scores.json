@@ -1,5 +1,9 @@
 [
     {
+        "nombre": "Jugador 2",
+        "puntos": 1285
+    },
+    {
         "nombre": "Jugador 1",
         "puntos": 1200
     },
@@ -20,6 +24,10 @@
         "puntos": 740
     },
     {
+        "nombre": "cris",
+        "puntos": 609
+    },
+    {
         "nombre": "Jugador 2",
         "puntos": 442
     },
@@ -30,13 +38,5 @@
     {
         "nombre": "Jugador 1",
         "puntos": 442
-    },
-    {
-        "nombre": "Jugador1",
-        "puntos": 197
-    },
-    {
-        "nombre": "Jugador 1",
-        "puntos": 197
     }
 ]

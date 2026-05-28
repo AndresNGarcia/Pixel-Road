@@ -3,7 +3,7 @@ import random
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene,
-    QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsTextItem
+    QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsTextItem,QPushButton,QHBoxLayout
 )
 from PySide6.QtGui import (
     QPixmap, QColor, QFont, QFontDatabase, QPen, QBrush, QPainter,
@@ -308,10 +308,12 @@ class EstadoJugador:
 
 class GameScreen(QWidget):
 
-    def __init__(self, stack, menu_index=0, network=None, es_host=True):
+    def __init__(self, stack, menu_index=0, menu=None, network=None, es_host=True):
         super().__init__()
         self.stack      = stack
         self.menu_index = menu_index
+        self.menu       = menu
+        self.music_muted= False
         self.network    = network   # NetworkManager; None si es partida local
         self.es_host    = es_host
         self._nombre1   = "Jugador 1"
@@ -319,6 +321,59 @@ class GameScreen(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        # ==========================
+        # BARRA SUPERIOR
+        # ==========================
+
+        top_bar = QHBoxLayout()
+        top_bar.setContentsMargins(15, 10, 15, 5)
+        top_bar.setSpacing(10)
+
+        self.btn_pause = QPushButton("⏸ PAUSA")
+        self.btn_menu = QPushButton("🏠 MENU")
+        self.btn_music = QPushButton("🔊")
+
+        estilo_btn = """
+        QPushButton{
+            background-color: rgba(20,20,40,220);
+            color: white;
+            border: 2px solid #00e5ff;
+            border-radius: 10px;
+            padding: 10px;
+            font-size: 14px;
+        }
+
+        QPushButton:hover{
+            border: 2px solid #ff4081;
+        }
+
+        QPushButton:pressed{
+            background: #ff4081;
+        }
+        """
+
+        self.btn_pause.setStyleSheet(estilo_btn)
+        self.btn_menu.setStyleSheet(estilo_btn)
+        self.btn_music.setStyleSheet(estilo_btn)
+
+        self.btn_pause.clicked.connect(
+            self.toggle_pause_network
+        )
+
+        self.btn_menu.clicked.connect(
+            self.salir_menu_network
+        )
+
+        self.btn_music.clicked.connect(
+            self.toggle_music
+        )
+
+        top_bar.addWidget(self.btn_pause)
+        top_bar.addWidget(self.btn_menu)
+        top_bar.addStretch()
+        top_bar.addWidget(self.btn_music)
+
+        layout.addLayout(top_bar)
 
         # QGraphicsScene es el "mundo" del juego; QGraphicsView lo muestra en pantalla
         self.escena = QGraphicsScene()
@@ -351,7 +406,58 @@ class GameScreen(QWidget):
         self.ultimo_carril = -1
         self.hud           = None
         self.pantalla_fin  = None
+    def toggle_pause_network(self):
 
+        self._toggle_pause()
+
+        if self.network:
+
+            estado = (
+                "1"
+                if self.pausado
+                else "0"
+            )
+
+            self.network.enviar(
+                f"PAUSA|{estado}"
+            )
+
+
+    def salir_menu_network(self):
+
+        if self.network:
+
+            self.network.enviar(
+                "IR_MENU"
+            )
+
+        self._ir_al_menu()
+
+
+    def toggle_music(self):
+
+        if not self.menu:
+            return
+
+        if self.music_muted:
+
+            self.menu.musicaFondo.play()
+
+            self.btn_music.setText(
+                "🔊"
+            )
+
+            self.music_muted = False
+
+        else:
+
+            self.menu.musicaFondo.pause()
+
+            self.btn_music.setText(
+                "🔇"
+            )
+
+            self.music_muted = True
     # --- API publica ----------------------------------------------------------
 
     def set_jugadores(self, nombre1, nombre2):
@@ -457,11 +563,23 @@ class GameScreen(QWidget):
             return
 
         if tecla in (Qt.Key_P, Qt.Key_Escape):
+
             self._alternar_pausa()
+
+            if self.network:
+
+                estado = (
+                    "1"
+                    if self.pausado
+                    else "0"
+                )
+
+                self.network.enviar(
+                    f"PAUSA|{estado}"
+                )
+
             return
 
-        if self.pausado:
-            return
 
         # Sin red: los dos jugadores comparten el mismo teclado
         if not self.network:
@@ -498,8 +616,9 @@ class GameScreen(QWidget):
     # --- Game loop ------------------------------------------------------------
 
     def _tick(self):
-        if self.pausado or self.fin_partida:
+        if self.pausado:
             return
+
         self._scroll_pista()
         self.j1.actualizar_pos()
         self.j2.actualizar_pos()
@@ -901,10 +1020,31 @@ class GameScreen(QWidget):
                     self.j2.vivo   = False
                     self._terminar_partida()
 
+            elif tipo == "PAUSA" and len(partes) == 2:
+
+                estado = partes[1]
+
+                self.pausado = (
+                    estado == "1"
+                )
+
+            elif tipo == "SILENCIO":
+
+                if hasattr(
+                    self,
+                    "musica"
+                ):
+
+                    if self.musica.isPlaying():
+                        self.musica.pause()
+                    else:
+                        self.musica.play()
+
             elif tipo == "REINICIAR":
                 # El host decidio jugar de nuevo
                 if not self.es_host:
                     self.start_game()
+            
 
             elif tipo == "IR_MENU":
                 # El host decidio volver al menu
