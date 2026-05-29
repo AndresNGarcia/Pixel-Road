@@ -9,6 +9,10 @@
     },
     {
         "nombre": "Jugador 2",
+        "puntos": 768
+    },
+    {
+        "nombre": "Jugador 2",
         "puntos": 746
     },
     {
@@ -33,10 +37,6 @@
     },
     {
         "nombre": "Jugador1",
-        "puntos": 442
-    },
-    {
-        "nombre": "Jugador 1",
         "puntos": 442
     }
 ]
